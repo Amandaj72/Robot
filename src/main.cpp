@@ -1,28 +1,30 @@
 #include <Arduino.h>
 #include <Servo.h>
 #include <PS2X_lib.h>
+#include <Wire.h>
+#include "DFRobot_GestureFaceDetection.h"
 
 // Manette PS2
 PS2X ps2x;
-#define PS2_DATA A1 //bleu
-#define PS2_CMD A2 //vert
-#define PS2_ATT A3 //rouge
-#define PS2_CLK A4 //marron
+#define PS2_DATA A0 //bleu
+#define PS2_CMD A1 //vert
+#define PS2_ATT A2 //rouge
+#define PS2_CLK A3 //marron
 //jaune gnd
 //orange 3v
 
 // Servomoteur
 Servo Servo_dicretion;
-const int pinServo_direction = 13;
+const int pinServo_direction = 12;
 
 Servo Servo_Z;
-const int pinServo_Z = 12;
+const int pinServo_Z = 11;
 
 Servo Servo_angle;
-const int pinServo_angle = 11;
+const int pinServo_angle = 10;
 
 Servo Servo_tire;
-const int pinServo_tire = 10;
+const int pinServo_tire = 9;
 
 const int pinLaser = 8;
 
@@ -33,6 +35,12 @@ const int E2   = 6;
 const int M2 = 7;
 
 int currentSpeed = 0;
+bool modeAutomatique = false;
+
+//capteur caméra
+DFRobot_GestureFaceDetection_I2C gfd(0x72);
+// D/T => SDA
+// C/R => SCL
 
 // put function declarations here:
 void gererMoteurs();
@@ -81,33 +89,34 @@ void setup() {
     // pour avoir plus de détails par erreur, regarder code à la fin de cet article :
     // www.hackster.io/igorF2/arduino-robot-with-ps2-controller-playstation-2-joystick-85bddc
   }
+
+  // on démarre la communication I2C avec le capteur
+  gfd.begin(&Wire);
+  Serial.println("Capteur Gesture & Face pret !");
 }
 
 void loop() {
-  // Blocs : "Si entrée manette PS2" -> "Modifier la vitesse courante des moteurs"
-  gererMoteurs();
-
-  // Blocs : "Changement de direction" et "Joystick > Servo_direction et Joystick < zone_morte"
-  gererDirection();
-
-  gererZ();
-
-  gererangle();
-
-  tirerNerf();
-
-  gererLaser();
-
+  ps2x.read_gamepad(false, false);
   automatique();
+
+  if (!modeAutomatique) {
+    gererMoteurs();
+    gererDirection();
+    gererZ();
+    gererangle();
+    tirerNerf();
+    gererLaser();
+  } else {
+    analogWrite(E1, 0);
+    analogWrite(E2, 0);
+    digitalWrite(pinLaser, LOW);
+  }
 
   delay(20);
 }
 
 // put function definitions here:
 void gererMoteurs() {
-  // Lecture de la manette PS2
-  ps2x.read_gamepad(false, false);
-
   // Choix : axe y du joystick gauche pour avancer/reculer
   int joyY = ps2x.Analog(PSS_LY);
   
@@ -224,4 +233,44 @@ void gererLaser() {
     digitalWrite(pinLaser, ledAllumee ? HIGH : LOW);
   }
   boutonPrecedent = boutonActuel;
+}
+
+void automatique() {
+  static bool boutonPrecedent = false;
+  static unsigned long derniereLecture = 0;
+  bool boutonAppuye = ps2x.Button(PSB_PAD_UP);
+
+  if (!modeAutomatique && boutonAppuye && !boutonPrecedent) {
+    modeAutomatique = true;
+    analogWrite(E1, 0);
+    analogWrite(E2, 0);
+    digitalWrite(pinLaser, LOW);
+    Serial.println("Mode automatique activé (demo)");
+  }
+
+  boutonPrecedent = boutonAppuye;
+
+  if (!modeAutomatique || millis() - derniereLecture < 500) {
+    return;
+  }
+  derniereLecture = millis();
+
+  uint16_t nombreVisages = gfd.getFaceNumber();
+  if (nombreVisages == 0) {
+    Serial.println("Aucun visage detecte");
+    return;
+  }
+
+  uint16_t geste = gfd.getGestureType();
+  uint16_t score = gfd.getGestureScore();
+  Serial.print("Geste detecte: ");
+  Serial.print(geste);
+  Serial.print(" | score: ");
+  Serial.println(score);
+
+  if (geste == 4) {
+    Serial.println("Geste jaune (YES / signe V) detecte");
+    tirerNerf();
+    delay(1500);
+  }
 }
