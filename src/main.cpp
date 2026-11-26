@@ -24,6 +24,8 @@ const int pinServo_angle = 11;
 Servo Servo_tire;
 const int pinServo_tire = 10;
 
+const int pinLaser = 8;
+
 // Moteurs
 const int M1 = 4;
 const int E1   = 5;
@@ -35,9 +37,11 @@ int currentSpeed = 0;
 // put function declarations here:
 void gererMoteurs();
 void gererDirection();
-void tirerNerf();
 void gererZ();
 void gererangle();
+void tirerNerf();
+void gererLaser();
+void automatique();
 
 void setup() {
   // put your setup code here, to run once:
@@ -54,11 +58,17 @@ void setup() {
   Servo_angle.attach(pinServo_angle);
   Servo_angle.write(90); // position du milieu par défaut
 
+  Servo_tire.attach(pinServo_tire);
+  Servo_tire.write(90);
+
   // Moteurs
   pinMode(E1, OUTPUT);
   pinMode(E2, OUTPUT);
   pinMode(M1, OUTPUT);
   pinMode(M2, OUTPUT);
+
+  pinMode(pinLaser, OUTPUT);
+  digitalWrite(pinLaser, LOW);
 
   // Manette PS2
   // Paramètres : clock, command, attention, data, pressures, rumble
@@ -84,8 +94,11 @@ void loop() {
 
   gererangle();
 
-  // Bloc : "Tir manuel"
   tirerNerf();
+
+  gererLaser();
+
+  automatique();
 
   delay(20);
 }
@@ -186,9 +199,29 @@ void gererangle() {
   }
 }
 
+
 void tirerNerf() {
-  if (ps2x.Button(PSB_SQUARE)) { // changer par le bouton souhaité
-    Serial.println("Nerf tiré");
-    // Mettre l'implémentation ici
+  static bool boutonPrecedent = false;
+  bool boutonAppuye = ps2x.Button(PSB_R2);
+
+  if (boutonAppuye && !boutonPrecedent) {
+    Serial.println("Nerf tire (demo)");
+    Servo_tire.write(0);
+  } else if (!boutonAppuye && boutonPrecedent) {
+    Servo_tire.write(90);
   }
+
+  boutonPrecedent = boutonAppuye;
+}
+
+void gererLaser() {
+  static bool ledAllumee = false;
+  static bool boutonPrecedent = false;
+
+  bool boutonActuel = ps2x.Button(PSB_CROSS);
+  if (boutonActuel && !boutonPrecedent) {
+    ledAllumee = !ledAllumee;
+    digitalWrite(pinLaser, ledAllumee ? HIGH : LOW);
+  }
+  boutonPrecedent = boutonActuel;
 }
