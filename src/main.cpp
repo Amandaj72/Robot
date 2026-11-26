@@ -133,14 +133,29 @@ void gererDirection() {
 }
 
 void gererZ() {
-  // Choix : axe x du joystick gauche pour la direction
-  int joyX = ps2x.Analog(PSS_LX);
+  // Le joystick droit déplace progressivement Z; le relâchement garde la position.
+  static int positionZ = 90;
+  static unsigned long dernierPas = 0;
 
-  if (abs(joyX - 128) > 15) { // zone morte
-    int servoAngle = map(joyX, 0, 255, 45, 135); 
-    Servo_dicretion.write(servoAngle);
-  } else {
-    Servo_dicretion.write(90); // position du milieu par défaut
+  int joyX = ps2x.Analog(PSS_RX);
+  int deviation = abs(joyX - 128);
+
+  if (deviation <= 15) {
+    return;
+  }
+
+  unsigned long intervalle = map(constrain(deviation, 16, 127), 16, 127, 140, 25);
+  unsigned long maintenant = millis();
+  if (maintenant - dernierPas < intervalle) {
+    return;
+  }
+
+  dernierPas = maintenant;
+  int direction = joyX < 128 ? -1 : 1;
+  int nouvellePosition = constrain(positionZ + direction, 0, 180);
+  if (nouvellePosition != positionZ) {
+    positionZ = nouvellePosition;
+    Servo_Z.write(positionZ);
   }
 }
 
@@ -164,7 +179,7 @@ void gererangle() {
 
   dernierPas = maintenant;
   int direction = joyY < 128 ? 1 : -1;
-  int nouvellePosition = constrain(positionAngle + direction, 50, 150);
+  int nouvellePosition = constrain(positionAngle + direction, 45, 160);
   if (nouvellePosition != positionAngle) {
     positionAngle = nouvellePosition;
     Servo_angle.write(positionAngle);
