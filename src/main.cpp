@@ -4,14 +4,25 @@
 
 // Manette PS2
 PS2X ps2x;
-#define PS2_DAT 8
-#define PS2_CMD 9
-#define PS2_SEL 10
-#define PS2_CLK 11
+#define PS2_DATA A1 //bleu
+#define PS2_CMD A2 //vert
+#define PS2_ATT A3 //rouge
+#define PS2_CLK A4 //marron
+//jaune gnd
+//orange 3v
 
 // Servomoteur
-Servo myServo;
-const int pinServo = 3;
+Servo Servo_dicretion;
+const int pinServo_direction = 13;
+
+Servo Servo_Z;
+const int pinServo_Z = 12;
+
+Servo Servo_angle;
+const int pinServo_angle = 11;
+
+Servo Servo_tire;
+const int pinServo_tire = 10;
 
 // Moteurs
 const int M1 = 4;
@@ -25,6 +36,8 @@ int currentSpeed = 0;
 void gererMoteurs();
 void gererDirection();
 void tirerNerf();
+void gererZ();
+void gererangle();
 
 void setup() {
   // put your setup code here, to run once:
@@ -32,7 +45,14 @@ void setup() {
   delay(1000);
 
   // Servomoteur
-  myServo.attach(pinServo);
+  Servo_dicretion.attach(pinServo_direction);
+  Servo_dicretion.write(90); // position du milieu par défaut
+
+  Servo_Z.attach(pinServo_Z);
+  Servo_Z.write(90);
+
+  Servo_angle.attach(pinServo_angle);
+  Servo_angle.write(90); // position du milieu par défaut
 
   // Moteurs
   pinMode(E1, OUTPUT);
@@ -42,7 +62,7 @@ void setup() {
 
   // Manette PS2
   // Paramètres : clock, command, attention, data, pressures, rumble
-  int error = ps2x.config_gamepad(PS2_CLK, PS2_CMD, PS2_SEL, PS2_DAT, false, false);
+  int error = ps2x.config_gamepad(PS2_CLK, PS2_CMD, PS2_ATT, PS2_DATA, false, false);
   
   if (error == 0) {
     Serial.println("Connexion manette OK");
@@ -54,12 +74,15 @@ void setup() {
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
   // Blocs : "Si entrée manette PS2" -> "Modifier la vitesse courante des moteurs"
   gererMoteurs();
 
   // Blocs : "Changement de direction" et "Joystick > Servo_direction et Joystick < zone_morte"
   gererDirection();
+
+  gererZ();
+
+  gererangle();
 
   // Bloc : "Tir manuel"
   tirerNerf();
@@ -98,14 +121,53 @@ void gererMoteurs() {
 }
 
 void gererDirection() {
-  // Choix : axe x du joystick droit pour la direction
-  int joyX = ps2x.Analog(PSS_RX);
+  // Choix : axe x du joystick gauche pour la direction
+  int joyX = ps2x.Analog(PSS_LX);
 
   if (abs(joyX - 128) > 15) { // zone morte
-    int servoAngle = map(joyX, 0, 255, 0, 180); // mappage comme avant
-    myServo.write(servoAngle);
+    int servoAngle = map(joyX, 0, 255, 45, 135); 
+    Servo_dicretion.write(servoAngle);
   } else {
-    myServo.write(90); // position du milieu par défaut
+    Servo_dicretion.write(90); // position du milieu par défaut
+  }
+}
+
+void gererZ() {
+  // Choix : axe x du joystick gauche pour la direction
+  int joyX = ps2x.Analog(PSS_LX);
+
+  if (abs(joyX - 128) > 15) { // zone morte
+    int servoAngle = map(joyX, 0, 255, 45, 135); 
+    Servo_dicretion.write(servoAngle);
+  } else {
+    Servo_dicretion.write(90); // position du milieu par défaut
+  }
+}
+
+void gererangle() {
+  // L'axe vertical commande progressivement l'angle; le relâchement garde la position.
+  static int positionAngle = 90;
+  static unsigned long dernierPas = 0;
+
+  int joyY = ps2x.Analog(PSS_RY);
+  int deviation = abs(joyY - 128);
+
+  if (deviation <= 15) {
+    return;
+  }
+
+  unsigned long intervalle = map(constrain(deviation, 16, 127), 16, 127, 120, 20);
+  unsigned long maintenant = millis();
+  if (maintenant - dernierPas < intervalle) {
+    return;
+  }
+
+  dernierPas = maintenant;
+  int direction = joyY < 128 ? 1 : -1;
+  int nouvellePosition = constrain(positionAngle + direction, 50, 150);
+  if (nouvellePosition != positionAngle) {
+    positionAngle = nouvellePosition;
+    Servo_angle.write(positionAngle);
   }
 }
 
