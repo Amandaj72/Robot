@@ -27,15 +27,22 @@ Servo Servo_tire;
 const int pinServo_tire = 9;
 
 const int pinLaser = 8;
+//g=>gnd
+//v=>5v
+//s=>signal
 
-// Moteurs
+// Moteurs bas
 const int M1 = 4;
 const int E1   = 5;
 const int E2   = 6;
 const int M2 = 7;
 
+//Moteur lanceur
+const int pinMoteurLanceur = 3;
+
 int currentSpeed = 0;
 bool modeAutomatique = false;
+bool ledAllumee = false;
 
 //capteur caméra
 DFRobot_GestureFaceDetection_I2C gfd(0x72);
@@ -75,6 +82,8 @@ void setup() {
   pinMode(M1, OUTPUT);
   pinMode(M2, OUTPUT);
 
+  pinMode(pinMoteurLanceur, OUTPUT);
+
   pinMode(pinLaser, OUTPUT);
   digitalWrite(pinLaser, LOW);
 
@@ -97,19 +106,36 @@ void setup() {
 
 void loop() {
   ps2x.read_gamepad(false, false);
-  automatique();
 
-  if (!modeAutomatique) {
+  static bool boutonAutoPrecedent = false;
+  bool boutonAuto = ps2x.Button(PSB_PAD_UP);
+  bool nouvelAppuiAuto = boutonAuto && !boutonAutoPrecedent;
+  boutonAutoPrecedent = boutonAuto;
+
+  if (nouvelAppuiAuto) {
+    modeAutomatique = !modeAutomatique;
+    Serial.print("Mode automatique: ");
+    Serial.println(modeAutomatique ? "ON" : "OFF");
+
+    if (modeAutomatique) {
+      analogWrite(E1, 0);
+      analogWrite(E2, 0);
+      digitalWrite(pinMoteurLanceur, LOW);
+      Servo_tire.write(90);
+      ledAllumee = false;
+      digitalWrite(pinLaser, LOW);
+    }
+  }
+
+  if (modeAutomatique) {
+    automatique();
+  } else {
     gererMoteurs();
     gererDirection();
     gererZ();
     gererangle();
     tirerNerf();
     gererLaser();
-  } else {
-    analogWrite(E1, 0);
-    analogWrite(E2, 0);
-    digitalWrite(pinLaser, LOW);
   }
 
   delay(20);
@@ -200,8 +226,8 @@ void gererangle() {
   }
 
   dernierPas = maintenant;
-  int direction = joyY < 128 ? 1 : -1;
-  int nouvellePosition = constrain(positionAngle + direction, 45, 160);
+  int direction = joyY < 128 ? -1 : 1;
+  int nouvellePosition = constrain(positionAngle + direction, 30, 135);
   if (nouvellePosition != positionAngle) {
     positionAngle = nouvellePosition;
     Servo_angle.write(positionAngle);
@@ -214,17 +240,22 @@ void tirerNerf() {
   bool boutonAppuye = ps2x.Button(PSB_R2);
 
   if (boutonAppuye && !boutonPrecedent) {
-    Serial.println("Nerf tire (demo)");
-    Servo_tire.write(0);
+    Serial.println("Nerf tirer");
+    digitalWrite(pinMoteurLanceur, HIGH);
+    delay(500); // temps pour que le moteur atteigne sa vitesse maximale
+    Servo_tire.write(30);
+    delay(1000); // durée du tir
+    digitalWrite(pinMoteurLanceur, LOW);
+    Servo_tire.write(90);
   } else if (!boutonAppuye && boutonPrecedent) {
     Servo_tire.write(90);
+    digitalWrite(pinMoteurLanceur, LOW);
   }
 
   boutonPrecedent = boutonAppuye;
 }
 
 void gererLaser() {
-  static bool ledAllumee = false;
   static bool boutonPrecedent = false;
 
   bool boutonActuel = ps2x.Button(PSB_CROSS);
@@ -235,42 +266,53 @@ void gererLaser() {
   boutonPrecedent = boutonActuel;
 }
 
+
 void automatique() {
-  static bool boutonPrecedent = false;
   static unsigned long derniereLecture = 0;
-  bool boutonAppuye = ps2x.Button(PSB_PAD_UP);
+  static bool erreurCapteurSignalee = false;
 
-  if (!modeAutomatique && boutonAppuye && !boutonPrecedent) {
-    modeAutomatique = true;
-    analogWrite(E1, 0);
-    analogWrite(E2, 0);
-    digitalWrite(pinLaser, LOW);
-    Serial.println("Mode automatique activé (demo)");
-  }
+  ledAllumee = false;
+  digitalWrite(pinLaser, LOW);
 
-  boutonPrecedent = boutonAppuye;
-
-  if (!modeAutomatique || millis() - derniereLecture < 500) {
+  if (millis() - derniereLecture < 500) {
     return;
   }
   derniereLecture = millis();
 
   uint16_t nombreVisages = gfd.getFaceNumber();
+  if (nombreVisages == 0xFFFF) {
+    if (!erreurCapteurSignalee) {
+      Serial.println("Erreur de lecture du capteur");
+      erreurCapteurSignalee = true;
+    }
+    return;
+  }
+
   if (nombreVisages == 0) {
+    erreurCapteurSignalee = false;
     Serial.println("Aucun visage detecte");
     return;
   }
 
   uint16_t geste = gfd.getGestureType();
   uint16_t score = gfd.getGestureScore();
+  if (geste == 0xFFFF || score == 0xFFFF) {
+    if (!erreurCapteurSignalee) {
+      Serial.println("Lecture du geste invalide");
+      erreurCapteurSignalee = true;
+    }
+    return;
+  }
+
+  erreurCapteurSignalee = false;
+
   Serial.print("Geste detecte: ");
   Serial.print(geste);
   Serial.print(" | score: ");
   Serial.println(score);
 
   if (geste == 4) {
-    Serial.println("Geste jaune (YES / signe V) detecte");
+    Serial.println("Geste jaune");
     tirerNerf();
-    delay(1500);
   }
 }
